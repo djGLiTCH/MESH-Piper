@@ -1,0 +1,137 @@
+# Builds Piper's own command-line program (piper_exe, from libpiper) from this branch, Piper's code unchanged, for
+# each platform, then tests the packaged program by reading lines aloud to files with a voice from Piper's list.
+# A tag starting with v publishes the archives as that tag's release, with their SHA-256 sums.
+name: Build MESH-Piper
+
+on:
+  push:
+    branches: [mesh]
+    tags: ["v*"]
+  pull_request:
+    branches: [mesh]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build for ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-x64, os: windows-2025-vs2026, archive: zip }
+          - { name: macos-arm64, os: macos-26, archive: tar.gz }
+          - { name: macos-x64, os: macos-15-intel, archive: tar.gz }
+          - { name: linux-x64, os: ubuntu-24.04, archive: tar.gz }
+          - { name: linux-arm64, os: ubuntu-24.04-arm, archive: tar.gz }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Build
+        working-directory: libpiper
+        run: |
+          # On Linux and macOS the installed program finds its libraries in the lib folder beside its own.
+          rpath=()
+          case "${{ runner.os }}" in
+            Linux) rpath=('-DCMAKE_INSTALL_RPATH=$ORIGIN/../lib;$ORIGIN') ;;
+            macOS) rpath=('-DCMAKE_INSTALL_RPATH=@loader_path/../lib;@loader_path') ;;
+          esac
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PWD/install" "${rpath[@]}"
+          cmake --build build --config Release --parallel
+          cmake --install build --config Release
+
+      - name: Package
+        run: |
+          shopt -s nullglob
+          out="MESH-Piper-${{ matrix.name }}"
+          mkdir -p "$out/licenses"
+          cp -R libpiper/install/. "$out/"
+          # The program reads espeak-ng's data from beside itself, where Piper's install puts it only on Windows.
+          if [ "${{ runner.os }}" != Windows ]; then
+            mv "$out/share/espeak-ng-data" "$out/bin/"
+            rmdir "$out/share" 2> /dev/null || true
+          else
+            # Windows runs from bin alone: lib holds only link-time libraries and debug symbols, and share a second
+            # copy of the data.
+            rm -rf "$out/lib" "$out/share"
+          fi
+          # On Windows the Visual C++ runtime's files go beside the program, so a PC without it needs nothing more.
+          if [ "${{ runner.os }}" = Windows ]; then
+            vs="$("/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest -property installationPath | tr -d '\r')"
+            crts=("$(cygpath -u "$vs")"/VC/Redist/MSVC/*/x64/Microsoft.VC*.CRT)
+            test ${#crts[@]} -gt 0 || { echo "no Visual C++ runtime under $vs"; exit 1; }
+            crt="$(printf '%s\n' "${crts[@]}" | sort | tail -1)"
+            exe="$(find "$out" -type f -name piper_exe.exe | head -1)"
+            test -n "$exe" || { echo "no piper_exe.exe in $out"; exit 1; }
+            cp "$crt"/*.dll "$(dirname "$exe")/"
+          fi
+          cp COPYING .github/THIRD-PARTY.md "$out/"
+          espeak=libpiper/build/espeak_ng/src/espeak_ng_external
+          for f in COPYING COPYING.APACHE COPYING.BSD2 COPYING.UCD; do cp "$espeak/$f" "$out/licenses/espeak-ng-$f"; done
+          orts=(libpiper/lib/onnxruntime-*/)
+          test ${#orts[@]} -eq 1 || { echo "expected one ONNX Runtime folder, found ${#orts[@]}"; exit 1; }
+          cp "${orts[0]}LICENSE" "$out/licenses/onnxruntime-LICENSE"
+          cp "${orts[0]}ThirdPartyNotices.txt" "$out/licenses/onnxruntime-ThirdPartyNotices.txt"
+          cp libpiper/build/open_jtalk/src/openjtalk_external/src/COPYING "$out/licenses/open_jtalk-COPYING"
+          # Piper's commit is the last one to change anything outside .github, the folder this branch adds its files to.
+          piper="$(git log -1 --format=%H -- . ':(exclude).github')"
+          {
+            echo "# Source of this build"
+            echo
+            echo "Piper: https://github.com/OHF-Voice/piper1-gpl at commit $piper, unchanged."
+            echo "Built from https://github.com/${{ github.repository }} at commit ${{ github.sha }}, with .github/workflows/mesh-build.yml."
+            echo "espeak-ng, ONNX Runtime and Open JTalk at the versions Piper's libpiper/CMakeLists.txt names at that commit."
+          } > "$out/SOURCE.md"
+          if [ "${{ matrix.archive }}" = zip ]; then 7z a -tzip "$out.zip" "$out" > /dev/null; else tar -czf "$out.tar.gz" "$out"; fi
+
+      - name: Test the packaged program
+        run: |
+          # The archive is unpacked into a fresh folder, so the test runs only what a download holds.
+          out="MESH-Piper-${{ matrix.name }}"
+          mkdir unpacked
+          if [ "${{ matrix.archive }}" = zip ]; then 7z x -ounpacked "$out.zip" > /dev/null; else tar -xzf "$out.tar.gz" -C unpacked; fi
+          exe="$(find unpacked -type f \( -name piper_exe -o -name piper_exe.exe \) | head -1)"
+          test -n "$exe" || { echo "no piper_exe in $out's archive"; exit 1; }
+          "$exe" --version
+          base=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium
+          curl -sSfL -o alba.onnx "$base/en_GB-alba-medium.onnx"
+          curl -sSfL -o alba.onnx.json "$base/en_GB-alba-medium.onnx.json"
+          printf '%s\n' '{"text": "Button 1, Fire", "output_file": "line1.wav"}' '{"text": "Hyperspace", "output_file": "line2.wav"}' \
+            | "$exe" --model alba.onnx --json-input
+          test -s line1.wav && test -s line2.wav
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MESH-Piper-${{ matrix.name }}
+          path: MESH-Piper-${{ matrix.name }}.${{ matrix.archive }}
+
+  release:
+    name: Publish the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: archives
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd archives
+          sha256sum MESH-Piper-* > SHA256SUMS.txt
+          # A tag with a part after its version, as v1.8.1-rc1, is a release candidate, published as a pre-release.
+          pre=()
+          case "${{ github.ref_name }}" in *-*) pre=(--prerelease) ;; esac
+          gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" --title "${{ github.ref_name }}" "${pre[@]}" \
+            --notes "Piper's own program, built from OHF-Voice/piper1-gpl with its code unchanged. See SOURCE.md in each archive." \
+            MESH-Piper-* SHA256SUMS.txt
