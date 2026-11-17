@@ -1,6 +1,7 @@
 # Builds Piper's own command-line program (piper_exe, from libpiper) from this branch, Piper's code unchanged, for
 # each platform, then tests the packaged program by reading lines aloud to files with a voice from Piper's list.
-# A tag starting with v publishes the archives as that tag's release, with their SHA-256 sums.
+# A tag starting with v, or a push to mesh that moves .github/PIPER_COMMIT on, publishes the archives as a release,
+# with their SHA-256 sums.
 name: Build MESH-Piper
 
 on:
@@ -81,8 +82,7 @@ jobs:
           cp "${orts[0]}LICENSE" "$out/licenses/onnxruntime-LICENSE"
           cp "${orts[0]}ThirdPartyNotices.txt" "$out/licenses/onnxruntime-ThirdPartyNotices.txt"
           cp libpiper/build/open_jtalk/src/openjtalk_external/src/COPYING "$out/licenses/open_jtalk-COPYING"
-          # Piper's commit is the last one to change anything outside .github, the folder this branch adds its files to.
-          piper="$(git log -1 --format=%H -- . ':(exclude).github')"
+          piper="$(tr -d '[:space:]' < .github/PIPER_COMMIT)"
           {
             echo "# Source of this build"
             echo
@@ -113,10 +113,36 @@ jobs:
           name: MESH-Piper-${{ matrix.name }}
           path: MESH-Piper-${{ matrix.name }}.${{ matrix.archive }}
 
+  # The release a push makes: the tag pushed, or, for a push to mesh that moved .github/PIPER_COMMIT on (a merged
+  # pull request from Follow Piper's main), the tag mesh-version.sh gives. None for any other push.
+  version:
+    name: Find the release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.find.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: find
+        run: |
+          if [ "${{ github.ref_type }}" = tag ]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          before="$(git show "${{ github.event.before }}:.github/PIPER_COMMIT" 2> /dev/null | tr -d '[:space:]' || true)"
+          now="$(tr -d '[:space:]' < .github/PIPER_COMMIT)"
+          if [ -n "$before" ] && [ "$before" != "$now" ]; then
+            tag="$(bash .github/mesh-version.sh)"
+            echo "Piper moved from ${before:0:7} to ${now:0:7}, so this push releases $tag."
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          fi
+
   release:
     name: Publish the release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    if: needs.version.outputs.tag != ''
+    needs: [build, version]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
@@ -126,12 +152,14 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
           cd archives
           sha256sum MESH-Piper-* > SHA256SUMS.txt
           # A tag with a part after its version, as v1.8.1-rc1, is a release candidate, published as a pre-release.
           pre=()
-          case "${{ github.ref_name }}" in *-*) pre=(--prerelease) ;; esac
-          gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" --title "${{ github.ref_name }}" "${pre[@]}" \
+          case "$TAG" in *-*) pre=(--prerelease) ;; esac
+          # Where the tag is not there yet, the release makes it on the commit this run built.
+          gh release create "$TAG" --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "$TAG" "${pre[@]}" \
             --notes "Piper's own program, built from OHF-Voice/piper1-gpl with its code unchanged. See SOURCE.md in each archive." \
             MESH-Piper-* SHA256SUMS.txt

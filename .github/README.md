@@ -4,9 +4,10 @@ Builds of [Piper](https://github.com/OHF-Voice/piper1-gpl), the local text-to-sp
 Foundation, for Windows, macOS and Linux. [MESH](https://github.com/djGLiTCH/MESH) reads your arcade panel's control
 labels aloud with Piper's voices, and it downloads one of these builds only when you press its Download button.
 
-This repository is a fork of Piper. Its `mesh` branch is Piper's code at a chosen commit, unchanged, with one commit
-on top that adds this folder's files: this page, `THIRD-PARTY.md` and the workflow that makes the builds,
-`workflows/mesh-build.yml`. Piper's own README is `README.md` at the top of the branch.
+This repository is a fork of Piper. Its `mesh` branch is Piper's code, unchanged, with this folder's files added:
+this page, `THIRD-PARTY.md`, `PIPER_COMMIT`, the workflow that makes the builds (`workflows/mesh-build.yml`) and the
+one that follows Piper's main (`workflows/mesh-update.yml`), with `mesh-version.sh`, which gives a release's
+version. Piper's own README is `README.md` at the top of the branch.
 
 These are builds of Piper's own command-line program, `piper_exe` from Piper's `libpiper`. Piper itself publishes no
 builds of that program, only its Python package.
@@ -51,11 +52,15 @@ is published as a pre-release. The program itself says Piper's own version when 
 
 ## Moving to a newer Piper
 
-1. Sync this fork's `main` with Piper's.
-2. Rebase the `mesh` branch's one commit onto the newer Piper commit, and push it.
-3. Once every platform's build is green, tag the branch with its version, as above.
+Each Monday the workflow `workflows/mesh-update.yml` looks at Piper's main. Where it has moved, it merges it into the
+branch `piper-update`, moves `PIPER_COMMIT` on, builds and tests every platform there, and opens a pull request into
+`mesh` that names the release it will make. Merging that pull request with a merge commit builds every platform
+again and publishes the release, with its version as above. It can also be started by hand from the Actions tab.
 
-Piper's own workflows are switched off in this fork, so syncing `main` runs nothing.
+`PIPER_COMMIT` names the Piper commit the branch builds, and each archive's `SOURCE.md` names it too.
+
+Piper's own workflows are switched off in this fork. Syncing this fork's `main` runs nothing and leaves `mesh` as
+it is.
 
 ## Licence
 
