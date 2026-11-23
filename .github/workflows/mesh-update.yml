@@ -78,10 +78,13 @@ jobs:
             git log --oneline "$old..$new" | head -40
             echo '```'
           } > body.md
-          if [ "$(gh pr list --head piper-update --base mesh --state open --json number --jq length)" = "0" ]; then
-            gh pr create --base mesh --head piper-update --title "Build Piper's main as $tag" --body-file body.md
+          # This repository is a fork with Piper's as its upstream remote, which gh would take as its base, so each gh
+          # call names this repository.
+          repo="$GITHUB_REPOSITORY"
+          if [ "$(gh pr list --repo "$repo" --head piper-update --base mesh --state open --json number --jq length)" = "0" ]; then
+            gh pr create --repo "$repo" --base mesh --head piper-update --title "Build Piper's main as $tag" --body-file body.md
           else
-            gh pr edit piper-update --title "Build Piper's main as $tag" --body-file body.md
+            gh pr edit piper-update --repo "$repo" --title "Build Piper's main as $tag" --body-file body.md
           fi
           # A run started this way, unlike a push by this job, starts the build on the branch it names.
-          gh workflow run mesh-build.yml --ref piper-update
+          gh workflow run mesh-build.yml --repo "$repo" --ref piper-update
