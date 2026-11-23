@@ -1,13 +1,22 @@
-# Each Monday, and whenever started by hand, looks at Piper's main. Where it has moved past the commit in
-# .github/PIPER_COMMIT, merges it into the piper-update branch with PIPER_COMMIT moved on, builds and tests every
-# platform there, and opens a pull request into mesh naming the release it will make. Merging that pull request
-# builds again and publishes the release (mesh-build.yml).
-name: Follow Piper's main
+# Each Monday, and whenever started by hand, looks for a newer Piper to build. By default that is Piper's latest
+# release; started by hand with "main", it is Piper's main, for a fix MESH needs before Piper releases it. Where that
+# commit is not already in the commit in .github/PIPER_COMMIT, merges it into the piper-update branch with
+# PIPER_COMMIT moved on, builds and tests every platform there, and opens a pull request into mesh naming the release
+# it will make. Merging that pull request builds again and publishes the release (mesh-build.yml).
+name: Follow Piper's releases
 
 on:
   schedule:
     - cron: "0 6 * * 1"
   workflow_dispatch:
+    inputs:
+      follow:
+        description: "What of Piper's to build"
+        type: choice
+        options:
+          - release
+          - main
+        default: release
 
 permissions:
   contents: write
@@ -16,7 +25,7 @@ permissions:
 
 jobs:
   update:
-    name: Merge Piper's newer main
+    name: Merge Piper's newer release
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -27,13 +36,25 @@ jobs:
       - name: Merge, push and open the pull request
         env:
           GH_TOKEN: ${{ github.token }}
+          FOLLOW: ${{ inputs.follow || 'release' }}
         run: |
           git remote add upstream https://github.com/OHF-Voice/piper1-gpl.git
-          git fetch -q upstream main
           old="$(tr -d '[:space:]' < .github/PIPER_COMMIT)"
-          new="$(git rev-parse upstream/main)"
-          if [ "$new" = "$old" ]; then
-            echo "Piper's main is still at $old, so there is nothing to build."
+          if [ "$FOLLOW" = "main" ]; then
+            git fetch -q --no-tags upstream main
+            new="$(git rev-parse upstream/main)"
+            what="Piper's main"
+          else
+            # Piper's latest release that is not a pre-release, its tag fetched apart from this repository's own tags.
+            release="$(gh release view --repo OHF-Voice/piper1-gpl --json tagName --jq .tagName)"
+            git fetch -q --no-tags upstream "refs/tags/$release:refs/piper-tags/$release"
+            new="$(git rev-parse "refs/piper-tags/$release^{commit}")"
+            what="Piper's release $release"
+          fi
+          # A commit already in the one built, such as a release older than the main this repository follows, needs
+          # nothing.
+          if git merge-base --is-ancestor "$new" "$old"; then
+            echo "$what (${new:0:7}) is already in the Piper this repository builds (${old:0:7}), so there is nothing to build."
             exit 0
           fi
           git config user.name "github-actions[bot]"
@@ -41,9 +62,9 @@ jobs:
           git switch -q -C piper-update
           # Only this repository's own files under .github differ from Piper's, so a merge that stops is said and
           # left for a person.
-          if ! git merge -q --no-ff --no-commit upstream/main; then
+          if ! git merge -q --no-ff --no-commit "$new"; then
             git merge --abort || true
-            echo "Piper's main does not merge cleanly into mesh. Merge it by hand." >&2
+            echo "$what does not merge cleanly into mesh. Merge it by hand." >&2
             exit 1
           fi
           # GitHub never lets this job's token change a workflow file, so the merge keeps mesh's own
@@ -53,12 +74,12 @@ jobs:
           git clean -fdq -- .github/workflows
           printf '%s\n' "$new" > .github/PIPER_COMMIT
           git add .github/PIPER_COMMIT
-          git commit -q -m "Build Piper at ${new:0:7}, Piper's main on $(date -u +%Y-%m-%d)"
+          git commit -q -m "Build $what at ${new:0:7}, on $(date -u +%Y-%m-%d)"
           tag="$(bash .github/mesh-version.sh)"
           git push -q -f origin piper-update
           {
-            echo "Piper's main has moved from \`${old:0:7}\` to \`${new:0:7}\`. Merging this builds all five platforms"
-            echo "again and publishes the release **$tag**."
+            echo "$what is at \`${new:0:7}\`, past the \`${old:0:7}\` this repository builds. Merging this builds all"
+            echo "five platforms again and publishes the release **$tag**."
             echo
             echo "Merge it with **Create a merge commit**, so Piper's history stays whole."
             echo
@@ -82,9 +103,9 @@ jobs:
           # call names this repository.
           repo="$GITHUB_REPOSITORY"
           if [ "$(gh pr list --repo "$repo" --head piper-update --base mesh --state open --json number --jq length)" = "0" ]; then
-            gh pr create --repo "$repo" --base mesh --head piper-update --title "Build Piper's main as $tag" --body-file body.md
+            gh pr create --repo "$repo" --base mesh --head piper-update --title "Build $what as $tag" --body-file body.md
           else
-            gh pr edit piper-update --repo "$repo" --title "Build Piper's main as $tag" --body-file body.md
+            gh pr edit piper-update --repo "$repo" --title "Build $what as $tag" --body-file body.md
           fi
           # A run started this way, unlike a push by this job, starts the build on the branch it names.
           gh workflow run mesh-build.yml --repo "$repo" --ref piper-update
