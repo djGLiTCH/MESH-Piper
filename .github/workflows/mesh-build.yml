@@ -108,6 +108,13 @@ jobs:
             | "$exe" --model alba.onnx --json-input
           test -s line1.wav && test -s line2.wav
 
+      # MESH's side of the contract (.github/mesh-check.py): a build that fails here needs a change in MESH before
+      # MESH can pin it, which a pull request from Follow Piper's releases shows as a failed check.
+      - name: Check it the way MESH runs it
+        run: |
+          bash .github/mesh-voice.sh
+          python .github/mesh-check.py unpacked voice/en_GB-alba-medium.onnx
+
       - uses: actions/upload-artifact@v4
         with:
           name: MESH-Piper-${{ matrix.name }}

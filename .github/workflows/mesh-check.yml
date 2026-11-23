@@ -1,0 +1,49 @@
+# Checks a published MESH-Piper release the way MESH runs it, on every platform, with .github/mesh-check.py. Started
+# by hand with the release's tag, before MESH pins it. Every build in mesh-build.yml runs the same check on the
+# archive it makes.
+name: Check a release with MESH
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "The MESH-Piper release to check, such as v1.8.1-rc2"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check ${{ inputs.release }} for ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-x64, os: windows-2025-vs2026, archive: zip }
+          - { name: macos-arm64, os: macos-26, archive: tar.gz }
+          - { name: macos-x64, os: macos-15-intel, archive: tar.gz }
+          - { name: linux-x64, os: ubuntu-24.04, archive: tar.gz }
+          - { name: linux-arm64, os: ubuntu-24.04-arm, archive: tar.gz }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: mesh
+          sparse-checkout: .github
+
+      - name: Fetch the release's archive and a voice
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          gh release download "$RELEASE" --repo "${{ github.repository }}" --pattern "MESH-Piper-${{ matrix.name }}.${{ matrix.archive }}"
+          mkdir unpacked
+          if [ "${{ matrix.archive }}" = zip ]; then 7z x -ounpacked "MESH-Piper-${{ matrix.name }}.zip" > /dev/null; else tar -xzf "MESH-Piper-${{ matrix.name }}.tar.gz" -C unpacked; fi
+          bash .github/mesh-voice.sh
+
+      - name: Check it the way MESH runs it
+        run: python .github/mesh-check.py unpacked voice/en_GB-alba-medium.onnx
