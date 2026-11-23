@@ -72,7 +72,11 @@ def main():
     # MESH keeps the program in its settings folder, which can be a long path, so the program is run from a copy
     # under a folder past 160 characters, as espeak-ng's data path once had to fit in, yet short enough that its data
     # files stay inside Windows' 260.
-    deep = pathlib.Path(tempfile.mkdtemp(prefix="mesh-check-")) / ("MESH Settings Folder " * 5).strip() / "Voices" / "Piper" / "Program"
+    # The folder's name is sized from the temporary folder's own length, which differs by system.
+    base = pathlib.Path(tempfile.mkdtemp(prefix="mesh-check-"))
+    tail = os.sep.join(["", "Voices", "Piper", "Program", "bin"])
+    name = ("MESH Settings Folder " * 20)[:max(20, 175 - len(str(base)) - len(tail) - 1)].strip()
+    deep = base / name / "Voices" / "Piper" / "Program"
     shutil.copytree(found.parent.parent if found.parent.name == "bin" else found.parent, deep)
     program = find_program(deep)
     check(len(str(program.parent)) > 160, f"the program runs from a folder path of {len(str(program.parent))} characters")
