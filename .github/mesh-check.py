@@ -1,10 +1,15 @@
 """Checks that an unpacked MESH-Piper archive still works the way MESH runs it.
 
 usage: python mesh-check.py <unpacked folder> <voice .onnx, its .onnx.json beside it>
+       python mesh-check.py --contract     prints the contract number alone
 
 This is MESH's side of the contract, kept in step with MESH's own code: PiperVoices.FindProgram, PiperVoices.JsonLine,
 PiperRenderer.Start and SystemVoices.Finished. A check that fails here means MESH needs a change before it can pin the
 release built. Every check runs, and each failure is said, then the script exits 1 where any failed.
+
+CONTRACT numbers the way MESH runs Piper, and MESH's PiperDownload.Contract carries the same number. It goes up in
+both whenever MESH changes what it needs of the program. A release signed for MESH names the number it passed at, and
+a MESH uses only a release of its own number.
 """
 import json
 import os
@@ -15,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 
+CONTRACT = 1
 WINDOWS = os.name == "nt"
 # PiperVoices.ProgramNames: MESH looks for these, in this order, within three folders of where it unpacks.
 PROGRAM_NAMES = ["piper_exe.exe", "piper.exe"] if WINDOWS else ["piper_exe", "piper"]
@@ -63,6 +69,7 @@ def wave_format(path):
 
 def main():
     root, voice = pathlib.Path(sys.argv[1]).resolve(), pathlib.Path(sys.argv[2]).resolve()
+    print(f"Checking the build the way MESH runs it, contract {CONTRACT}.")
 
     found = find_program(root)
     if not check(found is not None, f"MESH finds {' or '.join(PROGRAM_NAMES)} within {MAX_DEPTH} folders of the archive"):
@@ -108,8 +115,11 @@ def main():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--contract"]:
+        print(CONTRACT)
+        sys.exit(0)
     main()
     if failures:
         print(f"\n{len(failures)} check(s) failed. MESH needs a change before it can pin this build.")
         sys.exit(1)
-    print("\nEvery check passed. MESH runs this build as it is.")
+    print(f"\nEvery check passed. MESH runs this build as it is, contract {CONTRACT}.")

@@ -27,7 +27,19 @@ Each holds:
 - `COPYING` (GPL-3.0), `THIRD-PARTY.md` with every part's licence, and `SOURCE.md` naming the exact source of the
   build
 
-Each release also has `SHA256SUMS.txt`, the SHA-256 sum of each archive, which MESH checks each download against.
+Each release also has `SHA256SUMS.txt`, the SHA-256 sum of each archive and of `mesh-contract.txt`, which holds the
+contract number below.
+
+## MESH's check
+
+`mesh-check.py` runs a build the way MESH runs Piper, and every build runs it, as does "Check a release with MESH"
+on a published release. Its `CONTRACT` numbers that way of running Piper, and MESH carries the same number. When MESH
+changes what it needs of the program, the number goes up in both.
+
+MESH carries one release's archives by size and SHA-256. A newer release reaches MESH without a new MESH only through
+a record the MESH developer signs, naming the release, its contract number and each archive's size and SHA-256. MESH
+uses that release only where the record checks against the developer's keys, the release is newer than the one it
+carries and the contract number is its own, and it checks each download against the record.
 
 ## macOS
 

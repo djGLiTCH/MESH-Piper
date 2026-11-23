@@ -152,6 +152,10 @@ jobs:
     needs: [build, version]
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github
+          path: source
       - uses: actions/download-artifact@v4
         with:
           path: archives
@@ -162,11 +166,13 @@ jobs:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           cd archives
-          sha256sum MESH-Piper-* > SHA256SUMS.txt
+          # The contract number every build passed MESH's check at, which a release signed for MESH names.
+          python3 ../source/.github/mesh-check.py --contract > mesh-contract.txt
+          sha256sum MESH-Piper-* mesh-contract.txt > SHA256SUMS.txt
           # A tag with a part after its version, as v1.8.1-rc1, is a release candidate, published as a pre-release.
           pre=()
           case "$TAG" in *-*) pre=(--prerelease) ;; esac
           # Where the tag is not there yet, the release makes it on the commit this run built.
           gh release create "$TAG" --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "$TAG" "${pre[@]}" \
             --notes "Piper's own program, built from OHF-Voice/piper1-gpl with its code unchanged. See SOURCE.md in each archive." \
-            MESH-Piper-* SHA256SUMS.txt
+            MESH-Piper-* mesh-contract.txt SHA256SUMS.txt
