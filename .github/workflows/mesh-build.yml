@@ -15,10 +15,13 @@ on:
 permissions:
   contents: write
 
+# Every job has a timeout-minutes a few times its usual run, so a step that hangs ends there rather than after
+# GitHub's six hours.
 jobs:
   build:
     name: Build for ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -115,10 +118,12 @@ jobs:
           bash .github/mesh-voice.sh
           python .github/mesh-check.py unpacked voice/en_GB-alba-medium.onnx
 
+      # Kept a day, as the release job takes them in the same run and the release holds them after.
       - uses: actions/upload-artifact@v4
         with:
           name: MESH-Piper-${{ matrix.name }}
           path: MESH-Piper-${{ matrix.name }}.${{ matrix.archive }}
+          retention-days: 1
 
   # The release a push makes: the tag pushed, or, for a push to mesh that moved .github/PIPER_COMMIT on (a merged
   # pull request from Follow Piper's main), the tag mesh-version.sh gives. None for any other push.
@@ -126,6 +131,7 @@ jobs:
     name: Find the release
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       tag: ${{ steps.find.outputs.tag }}
     steps:
@@ -151,6 +157,7 @@ jobs:
     if: needs.version.outputs.tag != ''
     needs: [build, version]
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
         with:
